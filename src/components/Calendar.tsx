@@ -1,44 +1,45 @@
 import { useState, useEffect } from 'react';
 import { 
   format, 
-  startOfMonth, 
-  endOfMonth, 
-  startOfWeek, 
-  endOfWeek, 
-  addDays, 
-  isSameMonth, 
-  isSameDay,
   addMonths,
   subMonths,
+  addDays,
+  subDays,
+  addYears,
+  subYears,
   getHours,
   getMinutes
 } from 'date-fns';
 import type { CalendarEvent } from '../types';
 import { getEvents, createEvent, type SongResponse } from '../services/api';
+import MonthView from './views/MonthView';
+import DayView from './views/DayView';
+import YearView from './views/YearView';
+import ViewSwitcher from './ViewSwitcher';
 
-const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+type CalendarViewType = 'day' | 'month' | 'year';
 
 export default function Calendar() {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState<CalendarViewType>('day');
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [newEvent, setNewEvent] = useState({ title: '', time: '09:00' });
 
-  const loadEvents = async () => {
-    const fetchedEvents = await getEvents();
-    const calendarEvents: CalendarEvent[] = fetchedEvents.map((song: SongResponse) => ({
-      id: song.id,
-      title: song.data.title,
-      date: song.data.date,
-      time: song.data.time,
-    }));
-    setEvents(calendarEvents);
-  };
-
   // Load events from API
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    const loadEvents = async () => {
+      const fetchedEvents = await getEvents();
+      const calendarEvents: CalendarEvent[] = fetchedEvents.map((song: SongResponse) => ({
+        id: song.id,
+        title: song.data.title,
+        date: song.data.date,
+        time: song.data.time,
+      }));
+      setEvents(calendarEvents);
+    };
+
     loadEvents();
   }, []);
 
@@ -69,19 +70,6 @@ export default function Calendar() {
     return () => clearInterval(interval);
   }, [events]);
 
-  const handlePrevMonth = () => {
-    setCurrentMonth(subMonths(currentMonth, 1));
-  };
-
-  const handleNextMonth = () => {
-    setCurrentMonth(addMonths(currentMonth, 1));
-  };
-
-  const handleDateClick = (date: Date) => {
-    setSelectedDate(date);
-    setShowEventModal(true);
-  };
-
   const handleAddEvent = async () => {
     if (!selectedDate || !newEvent.title.trim()) return;
 
@@ -107,99 +95,71 @@ export default function Calendar() {
     setSelectedDate(null);
   };
 
-  const getEventsForDate = (date: Date) => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    return events.filter(event => event.date === dateStr);
+  // Navigation Handlers
+  const handlePrevDay = () => setCurrentDate(subDays(currentDate, 1));
+  const handleNextDay = () => setCurrentDate(addDays(currentDate, 1));
+
+  const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1));
+  const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+
+  const handlePrevYear = () => setCurrentDate(subYears(currentDate, 1));
+  const handleNextYear = () => setCurrentDate(addYears(currentDate, 1));
+
+  const handleMonthClick = (date: Date) => {
+    setCurrentDate(date);
+    setView('month');
   };
 
-  const renderCalendarDays = () => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    const startDate = startOfWeek(monthStart);
-    const endDate = endOfWeek(monthEnd);
+  const handleDateClick = (date: Date) => {
+    setCurrentDate(date);
+    setView('day');
+  };
 
-    const days = [];
-    let day = startDate;
-
-    while (day <= endDate) {
-      const currentDay = day;
-      const dayEvents = getEventsForDate(currentDay);
-      const isCurrentMonth = isSameMonth(currentDay, currentMonth);
-      const isToday = isSameDay(currentDay, new Date());
-
-      days.push(
-        <div
-          key={currentDay.toISOString()}
-          onClick={() => handleDateClick(currentDay)}
-          className={`min-h-24 border border-gray-200 p-2 cursor-pointer transition-colors hover:bg-indigo-50 ${
-            !isCurrentMonth ? 'bg-gray-50 text-gray-400' : 'bg-white'
-          } ${isToday ? 'ring-2 ring-indigo-500' : ''}`}
-        >
-          <div className={`text-sm font-semibold mb-1 ${isToday ? 'text-indigo-600' : ''}`}>
-            {format(currentDay, 'd')}
-          </div>
-          <div className="space-y-1">
-            {dayEvents.map(event => (
-              <div
-                key={event.id}
-                className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded truncate"
-                title={`${event.time} - ${event.title}`}
-              >
-                {event.time} {event.title}
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      day = addDays(day, 1);
-    }
-
-    return days;
+  const handleAddEventFromDayView = (time: string) => {
+    setSelectedDate(currentDate);
+    setNewEvent({ ...newEvent, time });
+    setShowEventModal(true);
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-4">
-      <div className="bg-white rounded-lg shadow-lg">
-        {/* Header */}
-        <div className="bg-indigo-600 text-white p-4 rounded-t-lg">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handlePrevMonth}
-              className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 rounded transition-colors"
-            >
-              ←
-            </button>
-            <h2 className="text-2xl font-bold">
-              {format(currentMonth, 'MMMM yyyy')}
-            </h2>
-            <button
-              onClick={handleNextMonth}
-              className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 rounded transition-colors"
-            >
-              →
-            </button>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto p-4 pb-24">
+      {view === 'day' && (
+        <DayView
+          currentDate={currentDate}
+          events={events}
+          onPrevDay={handlePrevDay}
+          onNextDay={handleNextDay}
+          onAddEvent={handleAddEventFromDayView}
+        />
+      )}
 
-        {/* Days of week */}
-        <div className="grid grid-cols-7 bg-indigo-100">
-          {DAYS_OF_WEEK.map(day => (
-            <div key={day} className="text-center font-semibold py-2 text-indigo-800">
-              {day}
-            </div>
-          ))}
-        </div>
+      {view === 'month' && (
+        <MonthView
+          currentMonth={currentDate}
+          events={events}
+          onDateClick={handleDateClick}
+          onPrevMonth={handlePrevMonth}
+          onNextMonth={handleNextMonth}
+        />
+      )}
 
-        {/* Calendar grid */}
-        <div className="grid grid-cols-7">
-          {renderCalendarDays()}
-        </div>
-      </div>
+      {view === 'year' && (
+        <YearView
+          currentDate={currentDate}
+          onMonthClick={handleMonthClick}
+          onPrevYear={handlePrevYear}
+          onNextYear={handleNextYear}
+        />
+      )}
+
+      <ViewSwitcher currentView={view} onChangeView={setView} />
 
       {/* Event Modal */}
       {showEventModal && selectedDate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-50 flex items-center justify-center z-50"
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}
+        >
           <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
             <h3 className="text-xl font-bold mb-4 text-indigo-600">
               Add Event for {format(selectedDate, 'MMMM d, yyyy')}
@@ -213,8 +173,9 @@ export default function Calendar() {
                   type="text"
                   value={newEvent.title}
                   onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
                   placeholder="Event title"
+                  autoFocus
                 />
               </div>
               <div>
@@ -225,13 +186,13 @@ export default function Calendar() {
                   type="time"
                   value={newEvent.time}
                   onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
                 />
               </div>
-              <div className="flex space-x-2">
+              <div className="flex space-x-2 pt-2">
                 <button
                   onClick={handleAddEvent}
-                  className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
+                  className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
                 >
                   Add Event
                 </button>
@@ -241,7 +202,7 @@ export default function Calendar() {
                     setNewEvent({ title: '', time: '09:00' });
                     setSelectedDate(null);
                   }}
-                  className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors"
+                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
