@@ -1,3 +1,4 @@
+// src/components/Calendar.tsx
 import { useState, useEffect } from 'react';
 import { 
   format, 
@@ -8,9 +9,11 @@ import {
   addYears,
   subYears,
   getHours,
-  getMinutes
+  getMinutes,
+  getDate,
+  getDay
 } from 'date-fns';
-import type { CalendarEvent } from '../types';
+import type { CalendarEvent, RepeatType } from '../types';
 import { getEvents, createEvent, type SongResponse } from '../services/api';
 import MonthView from './views/MonthView';
 import DayView from './views/DayView';
@@ -25,7 +28,13 @@ export default function Calendar() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
-  const [newEvent, setNewEvent] = useState({ title: '', time: '09:00' });
+
+  // Updated state to include repeat
+  const [newEvent, setNewEvent] = useState<{title: string, time: string, repeat: RepeatType}>({
+    title: '',
+    time: '09:00',
+    repeat: 'none'
+  });
 
   // Load events from API
   useEffect(() => {
@@ -36,6 +45,7 @@ export default function Calendar() {
         title: song.data.title,
         date: song.data.date,
         time: song.data.time,
+        repeat: song.data.repeat || 'none' // Load repeat setting
       }));
       setEvents(calendarEvents);
     };
@@ -50,20 +60,67 @@ export default function Calendar() {
       const currentHour = getHours(now);
       const currentMinute = getMinutes(now);
       const currentDateStr = format(now, 'yyyy-MM-dd');
+      const currentDayOfWeek = getDay(now); // 0-6 (Sun-Sat)
+      const currentDayOfMonth = getDate(now); // 1-31
 
       events.forEach(event => {
-        if (event.date === currentDateStr) {
-          const [eventHour, eventMinute] = event.time.split(':').map(Number);
-          
-          // Check if event time matches current time (within the same minute)
-          if (eventHour === currentHour && eventMinute === currentMinute) {
-            alert(`Reminder: ${event.title} is scheduled for ${event.time}`);
+        const [eventHour, eventMinute] = event.time.split(':').map(Number);
+
+        // Basic time check first
+        if (eventHour !== currentHour || eventMinute !== currentMinute) {
+          return;
+        }
+
+        let shouldTrigger = false;
+
+        // Check date/repeat logic
+        if (event.repeat === 'daily') {
+          shouldTrigger = true;
+        } else if (event.repeat === 'weekly') {
+          // Check if same day of week (e.g., both are Monday)
+          const eventDate = new Date(event.date);
+          if (getDay(eventDate) === currentDayOfWeek) {
+            shouldTrigger = true;
+          }
+        } else if (event.repeat === 'monthly') {
+          // Check if same day of month (e.g., both are the 15th)
+          const eventDate = new Date(event.date);
+          if (getDate(eventDate) === currentDayOfMonth) {
+            shouldTrigger = true;
+          }
+        } else {
+          // No repeat, match exact date
+          if (event.date === currentDateStr) {
+            shouldTrigger = true;
+          }
+        }
+
+        if (shouldTrigger) {
+          // Use Notification API if available, fallback to alert
+          if (Notification.permission === 'granted') {
+            new Notification(`Reminder: ${event.title}`, {
+              body: `Scheduled for ${event.time}`
+            });
+          } else if (Notification.permission !== 'denied') {
+             Notification.requestPermission().then(permission => {
+               if (permission === 'granted') {
+                 new Notification(`Reminder: ${event.title}`, {
+                    body: `Scheduled for ${event.time}`
+                 });
+               }
+             });
+          } else {
+             alert(`Reminder: ${event.title} is scheduled for ${event.time}`);
           }
         }
       });
     };
 
-    // Check immediately and then every 60 seconds
+    // Request permission on mount
+    if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
 
@@ -77,6 +134,7 @@ export default function Calendar() {
       date: format(selectedDate, 'yyyy-MM-dd'),
       time: newEvent.time,
       title: newEvent.title,
+      repeat: newEvent.repeat
     };
 
     const createdEvent = await createEvent(eventData);
@@ -87,33 +145,23 @@ export default function Calendar() {
         title: createdEvent.data.title,
         date: createdEvent.data.date,
         time: createdEvent.data.time,
+        repeat: createdEvent.data.repeat
       }]);
     }
 
     setShowEventModal(false);
-    setNewEvent({ title: '', time: '09:00' });
+    setNewEvent({ title: '', time: '09:00', repeat: 'none' });
     setSelectedDate(null);
   };
 
-  // Navigation Handlers
   const handlePrevDay = () => setCurrentDate(subDays(currentDate, 1));
   const handleNextDay = () => setCurrentDate(addDays(currentDate, 1));
-
   const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1));
   const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
-
   const handlePrevYear = () => setCurrentDate(subYears(currentDate, 1));
   const handleNextYear = () => setCurrentDate(addYears(currentDate, 1));
-
-  const handleMonthClick = (date: Date) => {
-    setCurrentDate(date);
-    setView('month');
-  };
-
-  const handleDateClick = (date: Date) => {
-    setCurrentDate(date);
-    setView('day');
-  };
+  const handleMonthClick = (date: Date) => { setCurrentDate(date); setView('month'); };
+  const handleDateClick = (date: Date) => { setCurrentDate(date); setView('day'); };
 
   const handleAddEventFromDayView = (time: string) => {
     setSelectedDate(currentDate);
@@ -157,8 +205,7 @@ export default function Calendar() {
       {/* Event Modal */}
       {showEventModal && selectedDate && (
         <div
-          className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-50 flex items-center justify-center z-50"
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         >
           <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
             <h3 className="text-xl font-bold mb-4 text-indigo-600">
@@ -178,17 +225,37 @@ export default function Calendar() {
                   autoFocus
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Time
-                </label>
-                <input
-                  type="time"
-                  value={newEvent.time}
-                  onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
-                />
+
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Time
+                  </label>
+                  <input
+                    type="time"
+                    value={newEvent.time}
+                    onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
+                  />
+                </div>
+
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Repeat
+                  </label>
+                  <select
+                    value={newEvent.repeat}
+                    onChange={(e) => setNewEvent({ ...newEvent, repeat: e.target.value as RepeatType })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow bg-white"
+                  >
+                    <option value="none">None</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
               </div>
+
               <div className="flex space-x-2 pt-2">
                 <button
                   onClick={handleAddEvent}
@@ -199,7 +266,7 @@ export default function Calendar() {
                 <button
                   onClick={() => {
                     setShowEventModal(false);
-                    setNewEvent({ title: '', time: '09:00' });
+                    setNewEvent({ title: '', time: '09:00', repeat: 'none' });
                     setSelectedDate(null);
                   }}
                   className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition-colors"

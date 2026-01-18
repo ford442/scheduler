@@ -1,11 +1,13 @@
-// API service for connecting to FastAPI backend
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://ford442-storage-manager.hf.space';
+
+export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly';
 
 export interface EventData {
   date: string;
   time: string;
   title: string;
+  repeat?: RepeatType;
 }
 
 export interface Song {
@@ -52,7 +54,7 @@ export async function getEventById(id: number): Promise<SongResponse | null> {
   }
 }
 
-// POST: /api/songs payload: {"name": title, "author": "user", "type": "event", "data": {date, time, title}}
+// POST: /api/songs
 export async function createEvent(eventData: EventData): Promise<SongResponse | null> {
   try {
     const payload: Song = {
